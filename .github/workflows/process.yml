@@ -1,4 +1,4 @@
-name: Process PYQ
+name: Test PYQ AI
 
 on:
   workflow_dispatch:
@@ -25,40 +25,45 @@ jobs:
             build-essential \
             cmake \
             git \
-            wget \
-            python3 \
-            python3-pip \
+            curl \
             poppler-utils
 
       - name: Install Python packages
         run: |
-          pip install --upgrade pip
-          pip install pymupdf pillow
+          python3 -m pip install --upgrade pip
+          python3 -m pip install \
+            pymupdf \
+            pillow \
+            requests \
+            huggingface_hub
 
       - name: Build llama.cpp
         run: |
           git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+
           cmake -S llama.cpp -B llama.cpp/build \
             -DGGML_NATIVE=ON
+
           cmake --build llama.cpp/build \
             --config Release \
             -j4
 
       - name: Download Qwen3-VL
         run: |
-          pip install -U huggingface_hub
-
           mkdir -p models
 
-          huggingface-cli download \
+          hf download \
             Qwen/Qwen3-VL-4B-Instruct-GGUF \
-            Qwen3-VL-4B-Instruct-Q4_K_M.gguf \
+            --include "Qwen3-VL-4B-Instruct-Q4_K_M.gguf" \
             --local-dir models
 
-          huggingface-cli download \
+          hf download \
             Qwen/Qwen3-VL-4B-Instruct-GGUF \
-            mmproj-BF16.gguf \
+            --include "mmproj-BF16.gguf" \
             --local-dir models
+
+          echo "Downloaded model files:"
+          ls -lh models/
 
       - name: Find PDF
         id: pdf
@@ -66,25 +71,31 @@ jobs:
           PDF=$(find input -type f -iname "*.pdf" | head -n 1)
 
           if [ -z "$PDF" ]; then
-            echo "No PDF found."
+            echo "ERROR: No PDF found inside input/"
             exit 1
           fi
 
+          echo "Found PDF: $PDF"
           echo "pdf=$PDF" >> "$GITHUB_OUTPUT"
 
-      - name: Render PDF pages
+      - name: Render first page
         run: |
           mkdir -p pages
 
           pdftoppm \
+            -f 1 \
+            -singlefile \
             -jpeg \
             -r 120 \
             "${{ steps.pdf.outputs.pdf }}" \
-            pages/page
+            pages/page1
 
-      - name: Process first page as proof of concept
+          echo "Rendered page:"
+          ls -lh pages/
+
+      - name: Start Qwen3-VL
         run: |
-          mkdir -p output
+          echo "Starting Qwen3-VL..."
 
           llama.cpp/build/bin/llama-server \
             -m models/Qwen3-VL-4B-Instruct-Q4_K_M.gguf \
@@ -95,9 +106,50 @@ jobs:
             -ngl 0 \
             > server.log 2>&1 &
 
-          sleep 20
+          echo $! > server.pid
+
+          echo "Waiting for model to become ready..."
+
+          READY=0
+
+          for i in {1..120}; do
+            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
+              echo "Model is ready!"
+              READY=1
+              break
+            fi
+
+            echo "Waiting... ($i/120)"
+            sleep 5
+          done
+
+          if [ "$READY" -ne 1 ]; then
+            echo "ERROR: Model did not become ready."
+            echo "========== SERVER LOG =========="
+            cat server.log
+            exit 1
+          fi
+
+      - name: Analyze first page
+        run: |
+          mkdir -p output
 
           python3 scripts/test_page.py
+
+      - name: Show generated result
+        run: |
+          echo "======================================"
+          echo "          GENERATED JSON"
+          echo "======================================"
+
+          cat output/page_1.json
+
+          echo ""
+          echo "======================================"
+          echo "          SERVER LOG (last 100 lines)"
+          echo "======================================"
+
+          tail -n 100 server.log || true
 
       - name: Commit result
         run: |
@@ -106,7 +158,9 @@ jobs:
 
           git add output/
 
-          git diff --cached --quiet || \
-            git commit -m "Process PYQ"
-
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "AI: process PYQ page 1"
+            git push
+          else
+            echo "No output changes to commit."
+          fi
