@@ -58,11 +58,9 @@ jobs:
             exit 1
           fi
           
-          # Count pages
           PAGES=$(pdfinfo "$PDF" | grep Pages | awk '{print $2}')
           echo "PDF has $PAGES pages."
           
-          # Generate JSON array like [1, 2, 3, 4]
           MATRIX_JSON=$(seq 1 $PAGES | jq -R . | jq -s -c 'map(tonumber)')
           echo "Matrix Array: $MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
@@ -102,8 +100,6 @@ jobs:
         run: |
           mkdir -p pages
           PDF=$(find input -type f -iname "*.pdf" | head -n 1)
-          
-          # Render strictly the assigned matrix page
           pdftoppm -f ${{ matrix.page }} -l ${{ matrix.page }} -singlefile -jpeg -r 120 "$PDF" pages/page_${{ matrix.page }}
 
       - name: Start Qwen3-VL Server
@@ -126,6 +122,7 @@ jobs:
           mkdir -p output
           python3 scripts/test_page.py ${{ matrix.page }}
 
+      # UPDATED: Now uploads the entire output folder (JSON + Images)
       - name: Upload Page Output
         uses: actions/upload-artifact@v4
         with:
@@ -134,7 +131,7 @@ jobs:
           if-no-files-found: ignore
 
   # =========================================================
-  # JOB 3: MERGE (Combines all results and commits)
+  # JOB 3: MERGE (Combines all results, images, and commits)
   # =========================================================
   merge:
     needs: process
@@ -143,22 +140,31 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download all JSON artifacts
+      - name: Download all outputs
         uses: actions/download-artifact@v4
         with:
-          path: downloaded_jsons
+          path: downloaded_outputs
 
       - name: Merge JSONs
         run: python3 scripts/merge_jsons.py
 
-      - name: Commit final Question Bank
+      - name: Organize Images and Commit
         run: |
+          # Create a master images folder
+          mkdir -p images
+          
+          # Find all cropped jpgs from the downloaded artifacts and move them to the images folder
+          find downloaded_outputs -type f -name "*.jpg" -exec cp {} images/ \;
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Stage the JSON and the newly consolidated images folder
           git add question_bank.json
+          git add images/
           
           if ! git diff --cached --quiet; then
-            git commit -m "AI: Process and merge PDF PYQs"
+            git commit -m "AI: Process and merge PDF PYQs with diagrams"
             git push
           else
             echo "No changes to commit."
