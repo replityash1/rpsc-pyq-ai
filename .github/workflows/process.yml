@@ -56,7 +56,7 @@ jobs:
           if [ -z "$PDF" ]; then
             echo "ERROR: No PDF found."
             exit 1
-          }
+          fi
           
           PAGES=$(pdfinfo "$PDF" | grep Pages | awk '{print $2}')
           echo "PDF has $PAGES pages."
