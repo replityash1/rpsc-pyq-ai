@@ -126,11 +126,11 @@ jobs:
           mkdir -p output
           python3 scripts/test_page.py ${{ matrix.page }}
 
-      - name: Upload JSON Artifact
+      - name: Upload Page Output
         uses: actions/upload-artifact@v4
         with:
-          name: json-page-${{ matrix.page }}
-          path: output/page_${{ matrix.page }}.json
+          name: output-page-${{ matrix.page }}
+          path: output/
           if-no-files-found: ignore
 
   # =========================================================
