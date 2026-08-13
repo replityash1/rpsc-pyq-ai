@@ -1,254 +1,151 @@
-import base64
-import json
-import re
 import sys
 import os
+import json
 import requests
-from PIL import Image
-
-# ---------------------------------------------------------
-# Dynamic Configuration (Reads page number from GitHub Matrix)
-# ---------------------------------------------------------
-if len(sys.argv) < 2:
-    print("ERROR: Page number not provided.")
-    sys.exit(1)
-
-PAGE_NUM = sys.argv[1]
-IMAGE = f"pages/page_{PAGE_NUM}.jpg"
-OUTPUT = f"output/page_{PAGE_NUM}.json"
-RAW_OUTPUT = f"output/page_{PAGE_NUM}_raw.txt"
+import base64
 
 API_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
-# ---------------------------------------------------------
-# Prompt
-# ---------------------------------------------------------
-PROMPT = r"""
-You are an expert document-extraction system.
+SYSTEM_PROMPT = """
+You are an expert data extraction AI for RPSC competitive exam question papers.
+Your task is to extract all questions, options, and diagram paths from the provided image into a strict JSON array.
 
-You are analyzing ONE PAGE from a scanned RPSC/Rajasthan competitive examination question paper.
-Your job is ONLY to accurately extract the questions visible on this page.
+CRITICAL EXTRACTION RULES:
 
-IMPORTANT RULES:
+1. THE "5 OPTIONS" RULE (MANDATORY): 
+   EVERY single question has exactly 5 answer options labelled (1), (2), (3), (4), and (5). 
+   The 5th option is ALWAYS "Question not attempted" / "अनुत्तरित प्रश्न". 
+   The "options" array MUST strictly contain ONLY these 5 choices.
 
-1. Hindi and English versions of the same question are ONE question. Do NOT create two separate questions.
-2. Preserve the original question number.
-3. Extract the Hindi question text carefully.
-4. Extract the English question text carefully.
-5. Extract EVERY answer option visible.
-6. NUMBERED OPTIONS: The options in this paper are numbered (1, 2, 3, 4, 5). Preserve these exact numeric labels. Do NOT change them to A, B, C, D.
-7. FIVE OPTIONS: Note that there are 5 options per question (Option 5 is usually "Question not attempted"). Include all 5.
-8. BEWARE OF WATERMARKS: There is a faint vertical number watermark (e.g., "366373") running through the text. Ignore these numbers. Do not let them corrupt the words.
-9. CROSS-CHECK SPELLING: Use the clear English names to verify the Hindi spelling (e.g., if English says "Karauli", ensure the Hindi says "करौली", not a corrupted word).
-10. HANDLING MULTI-STATEMENT/CODE QUESTIONS: If a question has statements (e.g., a, b, c) followed by a "Codes" section (e.g., 1, 2, 3, 4), include ALL the statements inside the main "question_hi" and "question_en" text. ONLY put the final numeric code choices inside the "options" array. Do not mix them.
-11. VISUALS & DIAGRAMS (CRITICAL): If the question body OR any of the options contain images, complex diagrams, charts, or heavy structural chemical formulas, do NOT try to describe them with text. Instead, provide the [x_min, y_min, x_max, y_max] pixel coordinates of the bounding box around the image.
-12. Preserve mathematical expressions in standard LaTeX wrapped in $ delimiters as accurately as possible (e.g., $\text{BF}_3$, $x^2$).
-13. Return ONLY valid JSON. Do not put the JSON inside ```json fences.
+2. STATEMENTS & MATCHMAKING COLUMNS: 
+   If a question contains lists (e.g., I, II, III), Statements (e.g., A, B, C), or Matchmaking Tables (e.g., Column A and Column B), these are PART OF THE QUESTION. You MUST include them inside the main "question_hi" and "question_en" text strings. Use line breaks (\n) to format them cleanly. DO NOT put them in the "options" array.
 
-Return exactly this structure:
+3. NO FORCED TRANSLATION (SINGLE LANGUAGE QUESTIONS): 
+   If a question is printed ONLY in English (e.g., English Grammar questions) or ONLY in Hindi (e.g., Hindi Grammar questions), DO NOT TRANSLATE IT. 
+   - If it is English-only: Set "question_hi": "" and set the "hi" field in all options to "".
+   - If it is Hindi-only: Set "question_en": "" and set the "en" field in all options to "".
 
+4. IGNORE GHOST QUESTIONS: 
+   Do not hallucinate or generate empty questions. If a page only contains a reading passage or a diagram with no numbered questions, return an empty array [].
+
+Return ONLY valid JSON matching this exact structure:
 {
   "questions": [
     {
-      "number": 1,
-      "question_hi": "...",
-      "question_en": "...",
-      "diagram_box": null, 
+      "number": 26,
+      "question_hi": "कॉलम A को कॉलम B से सुमेलित करें:\nकॉलम A\na. mis\nb. de\nकॉलम B\n(i) tie\n(ii) content",
+      "question_en": "Match the prefixes under Column A with the words under Column B:\nColumn A\na. mis\nb. de\nColumn B\n(i) tie\n(ii) content",
       "diagram_path": null,
       "options": [
-        {
-          "label": "1",
-          "hi": "...",
-          "en": "...",
-          "image_box": null,
-          "image_path": null
-        },
-        {
-          "label": "2",
-          "hi": "...",
-          "en": "...",
-          "image_box": null,
-          "image_path": null
-        },
-        {
-          "label": "3",
-          "hi": "...",
-          "en": "...",
-          "image_box": null,
-          "image_path": null
-        },
-        {
-          "label": "4",
-          "hi": "...",
-          "en": "...",
-          "image_box": null,
-          "image_path": null
-        },
-        {
-          "label": "5",
-          "hi": "...",
-          "en": "...",
-          "image_box": null,
-          "image_path": null
-        }
+        {"label": "1", "hi": "a-(iv), b-(iii)", "en": "a-(iv), b-(iii)", "image_path": null},
+        {"label": "2", "hi": "a-(iii), b-(iv)", "en": "a-(iii), b-(iv)", "image_path": null},
+        {"label": "3", "hi": "a-(i), b-(ii)", "en": "a-(i), b-(ii)", "image_path": null},
+        {"label": "4", "hi": "a-(ii), b-(i)", "en": "a-(ii), b-(i)", "image_path": null},
+        {"label": "5", "hi": "अनुत्तरित प्रश्न", "en": "Question not attempted", "image_path": null}
       ]
     }
   ]
 }
 """
 
-# ---------------------------------------------------------
-# Convert image to Base64
-# ---------------------------------------------------------
-def image_to_base64(path):
-    with open(path, "rb") as f:
-        image_bytes = f.read()
-    return base64.b64encode(image_bytes).decode("utf-8")
+REFINEMENT_PROMPT = """
+You are an expert bilingual editor for RPSC competitive exam question papers.
+Review this small batch of questions and fix any OCR typos, garbled Hindi characters, or watermark corruptions. 
+Use the English text as your ground-truth reference for scientific terms and spelling.
+CRITICAL: Do NOT change question numbers, English text, option labels, or image paths. Return ONLY valid JSON matching the exact input array structure. Do NOT use Markdown or ```json fences.
+"""
 
-# ---------------------------------------------------------
-# Extract JSON from model response
-# ---------------------------------------------------------
-def extract_json(text):
-    text = text.strip()
-    text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"^```\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    text = text.strip()
-
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = text[start:end + 1]
-        try:
-            return json.loads(candidate)
-        except json.JSONDecodeError:
-            pass
-
-    raise ValueError("The model did not return valid JSON.\n\nMODEL RESPONSE:\n" + text)
-
-
-# ---------------------------------------------------------
-# Crop Diagrams using coordinates
-# ---------------------------------------------------------
-def crop_diagrams(structured_json, original_image_path, page_num):
-    try:
-        img = Image.open(original_image_path)
-    except Exception as e:
-        print(f"Warning: Could not open image for cropping: {e}")
-        return structured_json
-
-    os.makedirs("output/images", exist_ok=True)
-
-    for q in structured_json.get("questions", []):
-        q_num = q.get("number", "unknown")
-        
-        # 1. Crop the main question diagram (if it exists)
-        if q.get("diagram_box") and isinstance(q["diagram_box"], list) and len(q["diagram_box"]) == 4:
-            box = q["diagram_box"] 
-            try:
-                cropped_img = img.crop((box[0], box[1], box[2], box[3]))
-                save_path = f"output/images/page{page_num}_q{q_num}_diagram.jpg"
-                cropped_img.save(save_path)
-                q["diagram_path"] = save_path 
-            except Exception as e:
-                print(f"Failed to crop diagram for Q{q_num}: {e}")
-
-        # 2. Crop the option diagrams (if they exist)
-        for opt in q.get("options", []):
-            if opt.get("image_box") and isinstance(opt["image_box"], list) and len(opt["image_box"]) == 4:
-                box = opt["image_box"]
-                opt_label = opt.get("label", "X")
-                try:
-                    cropped_img = img.crop((box[0], box[1], box[2], box[3]))
-                    save_path = f"output/images/page{page_num}_q{q_num}_opt{opt_label}.jpg"
-                    cropped_img.save(save_path)
-                    opt["image_path"] = save_path
-                except Exception as e:
-                    print(f"Failed to crop option {opt_label} for Q{q_num}: {e}")
-                    
-    return structured_json
-
-
-# ---------------------------------------------------------
-# Main
-# ---------------------------------------------------------
-def main():
-    print("======================================")
-    print(f"RPSC PYQ AI TEST - PAGE {PAGE_NUM}")
-    print("======================================")
-
-    try:
-        image_b64 = image_to_base64(IMAGE)
-    except FileNotFoundError:
-        print(f"ERROR: Could not find {IMAGE}")
-        sys.exit(1)
-
+def refine_extracted_data(questions_array):
+    print("Running instant local refinement on extracted questions...")
     payload = {
         "messages": [
+            {"role": "system", "content": REFINEMENT_PROMPT},
+            {"role": "user", "content": json.dumps(questions_array, ensure_ascii=False)}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 2000
+    }
+    
+    try:
+        response = requests.post(API_URL, json=payload, timeout=120)
+        if response.status_code == 200:
+            content = response.json()["choices"][0]["message"]["content"]
+            content = content.replace("```json", "").replace("```", "").strip()
+            
+            start = content.find("[")
+            end = content.rfind("]")
+            if start != -1 and end != -1:
+                content = content[start:end+1]
+                
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                print("Refinement successful!")
+                return parsed
+    except Exception as e:
+        print(f"Refinement failed, using raw data: {e}")
+    
+    return questions_array
+
+def encode_image(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: python3 test_page.py <page_number>")
+        sys.exit(1)
+        
+    page_num = sys.argv[1]
+    image_path = f"pages/page_{page_num}.jpg"
+    output_json_path = f"output/page_{page_num}.json"
+    
+    if not os.path.exists(image_path):
+        print(f"Image {image_path} not found.")
+        sys.exit(1)
+
+    print(f"Processing page {page_num}...")
+    base64_image = encode_image(image_path)
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": PROMPT},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}}
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                    {"type": "text", "text": "Extract the questions from this page into JSON."}
                 ]
             }
         ],
         "temperature": 0.0,
-        "max_tokens": 6000,
-        "frequency_penalty": 1.2  # This strictly prevents infinite loops
+        "max_tokens": 4000
     }
 
-    print("Sending page to Qwen3-VL...")
-    
     try:
-        response = requests.post(API_URL, json=payload, timeout=1800)
-    except requests.RequestException as error:
-        print("ERROR communicating with llama-server:", error)
+        response = requests.post(API_URL, json=payload, timeout=300)
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        
+        content = content.replace("```json", "").replace("```", "").strip()
+        start = content.find("{")
+        end = content.rfind("}")
+        if start != -1 and end != -1:
+            content = content[start:end+1]
+            
+        json_data = json.loads(content)
+        
+        # Run inline refinement on the extracted array
+        if "questions" in json_data and len(json_data["questions"]) > 0:
+            json_data["questions"] = refine_extracted_data(json_data["questions"])
+            
+        with open(output_json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, ensure_ascii=False, indent=4)
+            
+        print(f"Successfully saved to {output_json_path}")
+        
+    except Exception as e:
+        print(f"Extraction failed: {e}")
         sys.exit(1)
-
-    if response.status_code != 200:
-        print("SERVER RESPONSE ERROR:\n", response.text)
-        sys.exit(1)
-
-    try:
-        result = response.json()
-    except json.JSONDecodeError:
-        print("ERROR: llama-server returned invalid JSON.\n", response.text)
-        sys.exit(1)
-
-    try:
-        model_text = result["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        print("ERROR: Unexpected llama-server response.")
-        sys.exit(1)
-
-    with open(RAW_OUTPUT, "w", encoding="utf-8") as f:
-        f.write(model_text)
-
-    try:
-        structured = extract_json(model_text)
-    except ValueError as error:
-        print("ERROR: Model output could not be parsed.\n", error)
-        sys.exit(1)
-
-    if not isinstance(structured, dict) or "questions" not in structured:
-        print("ERROR: Invalid JSON structure.")
-        sys.exit(1)
-
-    # -----------------------------------------------------
-    # Crop Diagrams and inject file paths into JSON
-    # -----------------------------------------------------
-    structured = crop_diagrams(structured, IMAGE, PAGE_NUM)
-
-    with open(OUTPUT, "w", encoding="utf-8") as f:
-        json.dump(structured, f, ensure_ascii=False, indent=2)
-
-    print(f"SUCCESS! Extracted {len(structured['questions'])} questions for page {PAGE_NUM}.")
 
 if __name__ == "__main__":
     main()
