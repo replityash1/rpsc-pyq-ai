@@ -7,7 +7,7 @@
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- 1. MathJax Configuration: Tells it to look for $ symbols -->
+    <!-- 1. MathJax Configuration -->
     <script>
         window.MathJax = {
             tex: {
@@ -16,13 +16,13 @@
                 processEscapes: true
             },
             startup: {
-                typeset: false // We will trigger typesetting manually after JSON loads
+                typeset: false // We will trigger typesetting manually
             }
         };
     </script>
     
-    <!-- 2. MathJax Library -->
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <!-- 2. MathJax Library (Removed 'async' to prevent timing bugs) -->
+    <script id="MathJax-script" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
 
@@ -117,11 +117,13 @@
                     container.appendChild(card);
                 });
 
-                // 3. Force MathJax to render the newly injected content
-                if (window.MathJax && window.MathJax.typesetPromise) {
-                    window.MathJax.typesetPromise([document.getElementById('questions-container')])
-                        .catch((err) => console.log('MathJax rendering failed: ', err));
-                }
+                // 3. Force MathJax to render after a tiny delay to ensure the DOM is ready
+                setTimeout(() => {
+                    if (window.MathJax) {
+                        window.MathJax.typesetClear();
+                        window.MathJax.typeset();
+                    }
+                }, 500);
 
             } catch (error) {
                 console.error(error);
@@ -135,6 +137,7 @@
             }
         }
 
+        // Run the loader
         loadQuestions();
     </script>
 </body>
