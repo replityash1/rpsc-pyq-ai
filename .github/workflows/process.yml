@@ -137,27 +137,27 @@ jobs:
       # ---------------------------------------------------------
       # 7. Render ONLY page 1
       # ---------------------------------------------------------
-      - name: Render first page
+      - name: Render second page
         run: |
           mkdir -p pages
 
-          echo "Rendering page 1..."
+          echo "Rendering page 2..."
 
           pdftoppm \
-            -f 1 \
+            -f 2 \
             -singlefile \
             -jpeg \
             -r 120 \
             "${{ steps.pdf.outputs.pdf }}" \
-            pages/page1
+            pages/page2
 
           echo ""
           echo "Rendered files:"
           ls -lh pages/
 
-          test -f pages/page1.jpg
+          test -f pages/page2.jpg
 
-          echo "Page 1 successfully rendered."
+          echo "Page 2 successfully rendered."
 
       # ---------------------------------------------------------
       # 8. Start Qwen3-VL
