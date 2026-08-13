@@ -10,9 +10,6 @@ permissions:
   contents: write
 
 jobs:
-  # =========================================================
-  # JOB 1: PREP (Builds cache and counts PDF pages)
-  # =========================================================
   prep:
     runs-on: ubuntu-latest
     outputs:
@@ -21,7 +18,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install poppler-utils (for pdfinfo)
+      - name: Install poppler-utils
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Cache Engine and Models
@@ -31,9 +28,9 @@ jobs:
           path: |
             llama.cpp
             models
-          key: ${{ runner.os }}-ai-engine-v1
+          key: Linux-ai-engine-v1
 
-      - name: Build llama.cpp (If not cached)
+      - name: Build llama.cpp
         if: steps.cache-ai.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install -y build-essential cmake
@@ -41,7 +38,7 @@ jobs:
           cmake -S llama.cpp -B llama.cpp/build -DGGML_NATIVE=ON
           cmake --build llama.cpp/build --config Release -j4
 
-      - name: Download Models (If not cached)
+      - name: Download Models
         if: steps.cache-ai.outputs.cache-hit != 'true'
         run: |
           python3 -m pip install huggingface_hub
@@ -49,29 +46,19 @@ jobs:
           hf download Qwen/Qwen3-VL-4B-Instruct-GGUF Qwen3VL-4B-Instruct-Q4_K_M.gguf --local-dir models
           hf download Qwen/Qwen3-VL-4B-Instruct-GGUF mmproj-Qwen3VL-4B-Instruct-F16.gguf --local-dir models
 
-      - name: Count PDF Pages and Generate Matrix
+      - name: Generate Matrix
         id: set-matrix
         run: |
           PDF=$(find input -type f -iname "*.pdf" | head -n 1)
-          if [ -z "$PDF" ]; then
-            echo "ERROR: No PDF found."
-            exit 1
-          fi
-          
+          if [ -z "$PDF" ]; then echo "No PDF found."; exit 1; fi
           PAGES=$(pdfinfo "$PDF" | grep Pages | awk '{print $2}')
-          echo "PDF has $PAGES pages."
-          
           MATRIX_JSON=$(seq 1 $PAGES | jq -R . | jq -s -c 'map(tonumber)')
-          echo "Matrix Array: $MATRIX_JSON"
           echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
-  # =========================================================
-  # JOB 2: PROCESS (Runs simultaneously for EVERY page)
-  # =========================================================
   process:
     needs: prep
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -81,34 +68,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: CPU Speed Benchmark
-        run: |
-          python3 -c '
-          import time, sys
-          print("Starting CPU Benchmark...")
-          start_time = time.time()
-          _ = sum(i * i for i in range(15_000_000))
-          duration = time.time() - start_time
-          print(f"Benchmark completed in {duration:.2f} seconds.")
-          if duration > 1.8:
-              print("❌ Server is too slow (Noisy Neighbor detected). Bailing out!")
-              sys.exit(1)
-          else:
-              print("✅ Server is fast! Proceeding with AI inference.")
-          '
-
       - name: Install dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y poppler-utils
           python3 -m pip install pillow requests
 
-      - name: Retrieve Cache (Instant loading)
+      - name: Retrieve Cache
         uses: actions/cache@v4
         with:
           path: |
             llama.cpp
             models
-          key: ${{ runner.os }}-ai-engine-v1
+          key: Linux-ai-engine-v1
 
       - name: Ensure Server is Executable
         run: chmod +x llama.cpp/build/bin/llama-server
@@ -127,10 +98,7 @@ jobs:
             --host 127.0.0.1 --port 8080 -c 8192 -ngl 0 > server.log 2>&1 &
           
           for i in {1..120}; do
-            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
-              echo "MODEL IS READY"
-              break
-            fi
+            if curl -sf http://127.0.0.1:8080/health > /dev/null; then break; fi
             sleep 5
           done
 
@@ -146,9 +114,6 @@ jobs:
           path: output/
           if-no-files-found: ignore
 
-  # =========================================================
-  # JOB 3: MERGE (Combines all refined results and commits)
-  # =========================================================
   merge:
     needs: process
     runs-on: ubuntu-latest
@@ -160,9 +125,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: downloaded_outputs
-
-      - name: Install Dependencies
-        run: python3 -m pip install requests
 
       - name: Merge JSONs
         run: python3 scripts/merge_jsons.py
@@ -180,10 +142,7 @@ jobs:
           
           if ! git diff --cached --quiet; then
             git commit -m "AI: Process, parallel refine, and merge PDF PYQs"
-            
-            # Pull any new manual changes to prevent Git push rejection
             git pull --rebase origin main
-            
             git push
           else
             echo "No changes to commit."
