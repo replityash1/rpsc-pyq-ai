@@ -37,7 +37,7 @@ jobs:
         if: steps.cache-ai.outputs.cache-hit != 'true'
         run: |
           sudo apt-get install -y build-essential cmake
-          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+          git clone --depth 1 [https://github.com/ggml-org/llama.cpp.git](https://github.com/ggml-org/llama.cpp.git)
           cmake -S llama.cpp -B llama.cpp/build -DGGML_NATIVE=ON
           cmake --build llama.cpp/build --config Release -j4
 
@@ -81,23 +81,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------
-      # THE CPU SPEED BENCHMARK (Fails fast if server is throttled)
-      # ---------------------------------------------------------
       - name: CPU Speed Benchmark
         run: |
           python3 -c '
           import time, sys
           print("Starting CPU Benchmark...")
           start_time = time.time()
-          
-          # Heavy CPU task: Calculate sum of squares for 15 million numbers
           _ = sum(i * i for i in range(15_000_000))
-          
           duration = time.time() - start_time
           print(f"Benchmark completed in {duration:.2f} seconds.")
-          
-          # Threshold set to 1.8 seconds (adjust if too strict)
           if duration > 1.8:
               print("❌ Server is too slow (Noisy Neighbor detected). Bailing out!")
               sys.exit(1)
@@ -135,7 +127,7 @@ jobs:
             --host 127.0.0.1 --port 8080 -c 8192 -ngl 0 > server.log 2>&1 &
           
           for i in {1..120}; do
-            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
+            if curl -sf [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health) > /dev/null; then
               echo "MODEL IS READY"
               break
             fi
@@ -155,7 +147,7 @@ jobs:
           if-no-files-found: ignore
 
   # =========================================================
-  # JOB 3: MERGE (Combines all results, images, and commits)
+  # JOB 3: MERGE & REFINE (Combines results, polishes Hindi, commits)
   # =========================================================
   merge:
     needs: process
@@ -164,13 +156,45 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Retrieve Cache (For Refinement Server)
+        uses: actions/cache@v4
+        with:
+          path: |
+            llama.cpp
+            models
+          key: ${{ runner.os }}-ai-engine-v1
+
+      - name: Ensure Server is Executable
+        run: chmod +x llama.cpp/build/bin/llama-server
+
+      - name: Start Qwen3-VL Server for Refinement
+        run: |
+          llama.cpp/build/bin/llama-server \
+            -m models/Qwen3VL-4B-Instruct-Q4_K_M.gguf \
+            --mmproj models/mmproj-Qwen3VL-4B-Instruct-F16.gguf \
+            --host 127.0.0.1 --port 8080 -c 8192 -ngl 0 > server.log 2>&1 &
+          
+          for i in {1..120}; do
+            if curl -sf [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health) > /dev/null; then
+              echo "MODEL IS READY FOR REFINEMENT"
+              break
+            fi
+            sleep 5
+          done
+
       - name: Download all outputs
         uses: actions/download-artifact@v4
         with:
           path: downloaded_outputs
 
+      - name: Install Dependencies for Merge/Refine
+        run: python3 -m pip install requests
+
       - name: Merge JSONs
         run: python3 scripts/merge_jsons.py
+
+      - name: Refine Question Bank (Spellings & Hindi Correction)
+        run: python3 scripts/refine_bank.py
 
       - name: Organize Images and Commit
         run: |
@@ -184,7 +208,7 @@ jobs:
           git add images/
           
           if ! git diff --cached --quiet; then
-            git commit -m "AI: Process and merge PDF PYQs with diagrams"
+            git commit -m "AI: Process, merge, and refine PDF PYQs with polished Hindi"
             git push
           else
             echo "No changes to commit."
