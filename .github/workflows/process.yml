@@ -135,7 +135,7 @@ jobs:
           echo "pdf=$PDF" >> "$GITHUB_OUTPUT"
 
       # ---------------------------------------------------------
-      # 7. Render ONLY page 1
+      # 7. Render ONLY page 2
       # ---------------------------------------------------------
       - name: Render second page
         run: |
@@ -222,9 +222,9 @@ jobs:
           fi
 
       # ---------------------------------------------------------
-      # 9. Analyze first page
+      # 9. Analyze second page
       # ---------------------------------------------------------
-      - name: Analyze first page
+      - name: Analyze second page
         run: |
           mkdir -p output
 
@@ -240,15 +240,15 @@ jobs:
           echo "GENERATED JSON"
           echo "======================================"
 
-          if [ -f output/page_1.json ]; then
-            cat output/page_1.json
+          if [ -f output/page_2.json ]; then
+            cat output/page_2.json
           else
             echo "No JSON output was produced."
 
-            if [ -f output/page_1_raw.txt ]; then
+            if [ -f output/page_2_raw.txt ]; then
               echo ""
               echo "RAW MODEL OUTPUT:"
-              cat output/page_1_raw.txt
+              cat output/page_2_raw.txt
             fi
 
             exit 1
@@ -277,7 +277,7 @@ jobs:
           if ! git diff --cached --quiet; then
 
             git commit \
-              -m "AI: process PYQ page 1"
+              -m "AI: process PYQ page 2"
 
             git push
 
