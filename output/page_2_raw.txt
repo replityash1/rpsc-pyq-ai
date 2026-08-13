@@ -1,0 +1,103 @@
+{
+  "questions": [
+    {
+      "number": 1,
+      "question_hi": "निम्न में से किसके द्वारा बिजोलिया किसान आन्दोलन में भावनी द्व्याल के नेतृत्व में एक जाँच आयोग नियुक्त किया गया ?",
+      "question_en": "Which among the following appointed an Enquiry Commission under the leadership of Bhawani Dayal in the Bijolia Peasant Movement?",
+      "options": [
+        {
+          "label": "A",
+          "hi": "अखिल भारतीय राष्ट्रीय कांग्रेस",
+          "en": "All India National Congress"
+        },
+        {
+          "label": "B",
+          "hi": "मेवाड़ के महाराणा",
+          "en": "Maharana of Mewar"
+        },
+        {
+          "label": "C",
+          "hi": "राजस्थान सेवा संघ",
+          "en": "Rajasthan Seva Sangh"
+        },
+        {
+          "label": "D",
+          "hi": "राजपूताना मध्य भारत सभा",
+          "en": "Rajputana Madhya Bharat Sabha"
+        },
+        {
+          "label": "E",
+          "hi": "अनुत्तरित प्रश्न",
+          "en": "Question not attempted"
+        }
+      ],
+      "visual": null
+    },
+    {
+      "number": 2,
+      "question_hi": "निम्नलिखित में से कौन कर्ती ती प्रजामण्डल अंदोलन से सम्बद्ध नहीं है ?",
+      "question_en": "Who among the following is not associated with the Karauli Prajamandal Movement?",
+      "options": [
+        {
+          "label": "A",
+          "hi": "विलोकचं्द्र माथुर",
+          "en": "Trilok Chandra Mathur"
+        },
+        {
+          "label": "B",
+          "hi": "स्वामी गोपालदास",
+          "en": "Swami Gopaldas"
+        },
+        {
+          "label": "C",
+          "hi": "चिरंजीलाल शर्मा",
+          "en": "Chiranjilal Sharma"
+        },
+        {
+          "label": "D",
+          "hi": "मानसिंह",
+          "en": "Man Singh"
+        },
+        {
+          "label": "E",
+          "hi": "अनुत्तरित प्रश्न",
+          "en": "Question not attempted"
+        }
+      ],
+      "visual": null
+    },
+    {
+      "number": 3,
+      "question_hi": "1857 के विद्रोह के समय अजमेर का शत्राणगर किस नेतिच इंफैंट्री के द्वारा राखित था ?",
+      "question_en": "During the revolt of 1857, the arsenal of Ajmer was guarded by which Native Infantry?",
+      "options": [
+        {
+          "label": "A",
+          "hi": "15वीं नेतिच इंफैंट्री",
+          "en": "15th Native Infantry"
+        },
+        {
+          "label": "B",
+          "hi": "महारानी की 83वीं लाइट इंफैंट्री",
+          "en": "Her Majesty's 83rd Light Infantry"
+        },
+        {
+          "label": "C",
+          "hi": "30वीं नेतिच इंफैंट्री की ग्रेनेडियर कंपनी",
+          "en": "Grenadier Company of 30th Native Infantry"
+        },
+        {
+          "label": "D",
+          "hi": "बंबई लांसर्स",
+          "en": "The Bombay Lancers"
+        },
+        {
+          "label": "E",
+          "hi": "अनुत्तरित प्रश्न",
+          "en": "Question not attempted"
+        }
+      ],
+      "visual": null
+    }
+  ]
+}
