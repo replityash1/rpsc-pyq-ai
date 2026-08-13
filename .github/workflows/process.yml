@@ -1,4 +1,4 @@
-name: Test PYQ AI
+name: Test PYQ AI Matrix
 
 on:
   workflow_dispatch:
@@ -10,279 +10,156 @@ permissions:
   contents: write
 
 jobs:
-  process:
+  # =========================================================
+  # JOB 1: PREP (Builds cache and counts PDF pages)
+  # =========================================================
+  prep:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      # ---------------------------------------------------------
-      # 1. Checkout repository
-      # ---------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------
-      # 2. Install system dependencies
-      # ---------------------------------------------------------
-      - name: Install system dependencies
+      - name: Install poppler-utils (for pdfinfo)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
+      - name: Cache Engine and Models
+        id: cache-ai
+        uses: actions/cache@v4
+        with:
+          path: |
+            llama.cpp
+            models
+          key: ${{ runner.os }}-ai-engine-v1
+
+      - name: Build llama.cpp (If not cached)
+        if: steps.cache-ai.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
+          git clone --depth 1 https://github.com/ggml-org/llama.cpp.git
+          cmake -S llama.cpp -B llama.cpp/build -DGGML_NATIVE=ON
+          cmake --build llama.cpp/build --config Release -j4
 
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            git \
-            curl \
-            poppler-utils
-
-      # ---------------------------------------------------------
-      # 3. Install Python packages
-      # ---------------------------------------------------------
-      - name: Install Python packages
+      - name: Download Models (If not cached)
+        if: steps.cache-ai.outputs.cache-hit != 'true'
         run: |
-          python3 -m pip install --upgrade pip
-
-          python3 -m pip install \
-            pillow \
-            requests \
-            huggingface_hub
-
-      # ---------------------------------------------------------
-      # 4. Build llama.cpp
-      # ---------------------------------------------------------
-      - name: Build llama.cpp
-        run: |
-          echo "Cloning llama.cpp..."
-
-          git clone --depth 1 \
-            https://github.com/ggml-org/llama.cpp.git
-
-          echo "Configuring..."
-
-          cmake \
-            -S llama.cpp \
-            -B llama.cpp/build \
-            -DGGML_NATIVE=ON
-
-          echo "Building..."
-
-          cmake \
-            --build llama.cpp/build \
-            --config Release \
-            -j4
-
-          echo "Checking llama-server..."
-
-          test -f llama.cpp/build/bin/llama-server
-
-          echo "llama-server successfully built."
-
-      # ---------------------------------------------------------
-      # 5. Download Qwen3-VL
-      # ---------------------------------------------------------
-      - name: Download Qwen3-VL
-        run: |
+          python3 -m pip install huggingface_hub
           mkdir -p models
+          hf download Qwen/Qwen3-VL-4B-Instruct-GGUF Qwen3VL-4B-Instruct-Q4_K_M.gguf --local-dir models
+          hf download Qwen/Qwen3-VL-4B-Instruct-GGUF mmproj-Qwen3VL-4B-Instruct-F16.gguf --local-dir models
 
-          echo "Downloading Qwen3-VL 4B Q4_K_M..."
-
-          hf download \
-            Qwen/Qwen3-VL-4B-Instruct-GGUF \
-            Qwen3VL-4B-Instruct-Q4_K_M.gguf \
-            --local-dir models
-
-          echo "Downloading vision projector..."
-
-          hf download \
-            Qwen/Qwen3-VL-4B-Instruct-GGUF \
-            mmproj-Qwen3VL-4B-Instruct-F16.gguf \
-            --local-dir models
-
-          echo ""
-          echo "======================================"
-          echo "Downloaded model files"
-          echo "======================================"
-
-          ls -lh models/
-
-          echo ""
-          echo "Checking required files..."
-
-          test -f \
-            models/Qwen3VL-4B-Instruct-Q4_K_M.gguf
-
-          test -f \
-            models/mmproj-Qwen3VL-4B-Instruct-F16.gguf
-
-          echo "Both model files exist."
-
-      # ---------------------------------------------------------
-      # 6. Find the input PDF
-      # ---------------------------------------------------------
-      - name: Find PDF
-        id: pdf
+      - name: Count PDF Pages and Generate Matrix
+        id: set-matrix
         run: |
           PDF=$(find input -type f -iname "*.pdf" | head -n 1)
-
           if [ -z "$PDF" ]; then
-            echo "ERROR: No PDF found inside input/"
+            echo "ERROR: No PDF found."
             exit 1
           fi
+          
+          # Count pages
+          PAGES=$(pdfinfo "$PDF" | grep Pages | awk '{print $2}')
+          echo "PDF has $PAGES pages."
+          
+          # Generate JSON array like [1, 2, 3, 4]
+          MATRIX_JSON=$(seq 1 $PAGES | jq -R . | jq -s -c 'map(tonumber)')
+          echo "Matrix Array: $MATRIX_JSON"
+          echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
 
-          echo "Found PDF:"
-          echo "$PDF"
+  # =========================================================
+  # JOB 2: PROCESS (Runs simultaneously for EVERY page)
+  # =========================================================
+  process:
+    needs: prep
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        page: ${{ fromJson(needs.prep.outputs.matrix) }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-          echo "pdf=$PDF" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y poppler-utils
+          python3 -m pip install pillow requests
 
-      # ---------------------------------------------------------
-      # 7. Render ONLY page 2
-      # ---------------------------------------------------------
-      - name: Render second page
+      - name: Retrieve Cache (Instant loading)
+        uses: actions/cache@v4
+        with:
+          path: |
+            llama.cpp
+            models
+          key: ${{ runner.os }}-ai-engine-v1
+
+      - name: Ensure Server is Executable
+        run: chmod +x llama.cpp/build/bin/llama-server
+
+      - name: Render Target Page
         run: |
           mkdir -p pages
+          PDF=$(find input -type f -iname "*.pdf" | head -n 1)
+          
+          # Render strictly the assigned matrix page
+          pdftoppm -f ${{ matrix.page }} -l ${{ matrix.page }} -singlefile -jpeg -r 120 "$PDF" pages/page_${{ matrix.page }}
 
-          echo "Rendering page 2..."
-
-          pdftoppm \
-            -f 2 \
-            -singlefile \
-            -jpeg \
-            -r 120 \
-            "${{ steps.pdf.outputs.pdf }}" \
-            pages/page2
-
-          echo ""
-          echo "Rendered files:"
-          ls -lh pages/
-
-          test -f pages/page2.jpg
-
-          echo "Page 2 successfully rendered."
-
-      # ---------------------------------------------------------
-      # 8. Start Qwen3-VL
-      # ---------------------------------------------------------
-      - name: Start Qwen3-VL
+      - name: Start Qwen3-VL Server
         run: |
-          echo "Starting Qwen3-VL..."
-
           llama.cpp/build/bin/llama-server \
             -m models/Qwen3VL-4B-Instruct-Q4_K_M.gguf \
             --mmproj models/mmproj-Qwen3VL-4B-Instruct-F16.gguf \
-            --host 127.0.0.1 \
-            --port 8080 \
-            -c 8192 \
-            -ngl 0 \
-            > server.log 2>&1 &
-
-          SERVER_PID=$!
-
-          echo "$SERVER_PID" > server.pid
-
-          echo "llama-server PID: $SERVER_PID"
-
-          echo ""
-          echo "Waiting for model to become ready..."
-
-          READY=0
-
+            --host 127.0.0.1 --port 8080 -c 8192 -ngl 0 > server.log 2>&1 &
+          
           for i in {1..120}; do
-
-            if curl -sf \
-              http://127.0.0.1:8080/health \
-              > /dev/null; then
-
-              echo ""
-              echo "======================================"
+            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
               echo "MODEL IS READY"
-              echo "======================================"
-
-              READY=1
               break
             fi
-
-            echo "Waiting... ($i/120)"
-
             sleep 5
-
           done
 
-          if [ "$READY" -ne 1 ]; then
-
-            echo ""
-            echo "======================================"
-            echo "MODEL FAILED TO START"
-            echo "======================================"
-
-            echo ""
-            echo "SERVER LOG:"
-            cat server.log
-
-            exit 1
-          fi
-
-      # ---------------------------------------------------------
-      # 9. Analyze second page
-      # ---------------------------------------------------------
-      - name: Analyze second page
+      - name: Analyze Page
         run: |
           mkdir -p output
+          python3 scripts/test_page.py ${{ matrix.page }}
 
-          python3 scripts/test_page.py
+      - name: Upload JSON Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: json-page-${{ matrix.page }}
+          path: output/page_${{ matrix.page }}.json
+          if-no-files-found: ignore
 
-      # ---------------------------------------------------------
-      # 10. Show generated result
-      # ---------------------------------------------------------
-      - name: Show result
+  # =========================================================
+  # JOB 3: MERGE (Combines all results and commits)
+  # =========================================================
+  merge:
+    needs: process
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all JSON artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded_jsons
+
+      - name: Merge JSONs
+        run: python3 scripts/merge_jsons.py
+
+      - name: Commit final Question Bank
         run: |
-          echo ""
-          echo "======================================"
-          echo "GENERATED JSON"
-          echo "======================================"
-
-          if [ -f output/page_2.json ]; then
-            cat output/page_2.json
-          else
-            echo "No JSON output was produced."
-
-            if [ -f output/page_2_raw.txt ]; then
-              echo ""
-              echo "RAW MODEL OUTPUT:"
-              cat output/page_2_raw.txt
-            fi
-
-            exit 1
-          fi
-
-          echo ""
-          echo "======================================"
-          echo "SERVER LOG - LAST 100 LINES"
-          echo "======================================"
-
-          tail -n 100 server.log || true
-
-      # ---------------------------------------------------------
-      # 11. Commit generated JSON
-      # ---------------------------------------------------------
-      - name: Commit result
-        run: |
-          git config user.name \
-            "github-actions[bot]"
-
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add output/
-
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add question_bank.json
+          
           if ! git diff --cached --quiet; then
-
-            git commit \
-              -m "AI: process PYQ page 2"
-
+            git commit -m "AI: Process and merge PDF PYQs"
             git push
-
           else
-
-            echo "No output changes to commit."
-
+            echo "No changes to commit."
           fi
