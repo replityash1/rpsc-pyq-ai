@@ -70,7 +70,6 @@
             formatted = formatted.replace(/\n/g, '<br>');
             
             // Auto-format Statement lists (A., B., C. or (i), (ii) or (1), (2))
-            // Adds a line break and indents them so they look like a proper list
             formatted = formatted.replace(/\s([A-E]\.)\s/g, '<br><span class="font-semibold text-indigo-700 ml-4">$1</span> ');
             formatted = formatted.replace(/\s(\([iI]+v?\))\s/g, '<br><span class="font-semibold text-indigo-700 ml-4">$1</span> ');
             formatted = formatted.replace(/\s(\(\d+\))\s/g, '<br><span class="font-semibold text-indigo-700 ml-4">$1</span> ');
@@ -79,7 +78,7 @@
             return formatted;
         }
 
-        // 2. Language Toggle Logic
+        // 2. Language Toggle Logic (Now uses Tailwind 'hidden' class to fix CSS spacing bugs)
         function setLanguage(lang) {
             // Update Buttons
             const btns = ['hi', 'en', 'both'];
@@ -94,10 +93,12 @@
 
             // Update Visibility
             document.querySelectorAll('.lang-hi').forEach(el => {
-                el.style.display = (lang === 'hi' || lang === 'both') ? 'block' : 'none';
+                if (lang === 'hi' || lang === 'both') el.classList.remove('hidden');
+                else el.classList.add('hidden');
             });
             document.querySelectorAll('.lang-en').forEach(el => {
-                el.style.display = (lang === 'en' || lang === 'both') ? 'block' : 'none';
+                if (lang === 'en' || lang === 'both') el.classList.remove('hidden');
+                else el.classList.add('hidden');
             });
         }
 
@@ -115,9 +116,8 @@
                 const seenText = new Set();
 
                 rawQuestions.forEach(q => {
-                    // Use the text as a fingerprint to catch duplicates
                     const fingerprint = (q.question_hi || q.question_en || "").trim();
-                    if (!fingerprint) return; // Skip completely empty blanks
+                    if (!fingerprint) return; 
 
                     if (!seenText.has(fingerprint)) {
                         seenText.add(fingerprint);
@@ -140,7 +140,6 @@
                     const card = document.createElement('div');
                     card.className = 'bg-white rounded-xl shadow-sm border border-slate-200 p-6 transition hover:shadow-md';
 
-                    // Re-number sequentially based on clean array
                     let html = `
                         <div class="flex items-start justify-between border-b border-slate-100 pb-3 mb-4">
                             <span class="bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-lg text-sm shadow-sm border border-indigo-100">
@@ -149,26 +148,18 @@
                         </div>
                     `;
 
-                    // Question Text Container
-                    html += `<div class="mb-6 space-y-4 preserve-lines">`;
+                    // Question Text Container - Uses flex + gap + divide for automatic smart borders and spacing
+                    html += `<div class="mb-6 flex flex-col gap-3 divide-y divide-slate-100">`;
                     
                     if (q.question_hi) {
-                        html += `
-                            <div class="lang-hi text-lg font-medium text-slate-900 leading-relaxed overflow-x-auto">
-                                ${formatText(q.question_hi)}
-                            </div>`;
+                        html += `<div class="lang-hi pt-3 first:pt-0 text-lg font-medium text-slate-900 leading-relaxed overflow-x-auto preserve-lines">${formatText(q.question_hi)}</div>`;
                     }
                     if (q.question_en) {
-                        // If both exist, give English a top border when in bilingual mode
-                        const borderClass = q.question_hi ? "border-t border-slate-100 pt-3" : "";
-                        html += `
-                            <div class="lang-en text-base text-slate-600 leading-relaxed overflow-x-auto ${borderClass}">
-                                ${formatText(q.question_en)}
-                            </div>`;
+                        html += `<div class="lang-en pt-3 first:pt-0 text-base text-slate-600 leading-relaxed overflow-x-auto preserve-lines">${formatText(q.question_en)}</div>`;
                     }
                     html += `</div>`;
 
-                    // Attached Diagram (Supports both new and old JSON keys)
+                    // Attached Diagram
                     const diagramPath = q.diagram_path || q.visual;
                     if (diagramPath) {
                         html += `
@@ -184,23 +175,63 @@
                     
                     if (q.options && q.options.length > 0) {
                         q.options.forEach(opt => {
-                            // Ensure the option label handles HTML safely
                             const optLabel = opt.label ? opt.label.replace(/</g, "&lt;") : "?";
                             
                             html += `
-                                <div class="flex items-start bg-slate-50 hover:bg-indigo-50/40 border border-slate-200 rounded-lg p-3 transition preserve-lines overflow-x-auto">
+                                <div class="flex items-start bg-slate-50 hover:bg-indigo-50/40 border border-slate-200 rounded-lg p-3 transition overflow-x-auto">
                                     <span class="font-bold text-indigo-600 w-8 flex-shrink-0 mt-0.5">(${optLabel})</span>
-                                    <div class="flex-grow space-y-2">`;
+                                    <div class="flex-grow flex flex-col gap-2 divide-y divide-slate-200/60">`;
 
                             if (opt.hi) {
-                                html += `<div class="lang-hi text-sm text-slate-900">${formatText(opt.hi)}</div>`;
+                                html += `<div class="lang-hi pt-2 first:pt-0 text-sm text-slate-900 preserve-lines">${formatText(opt.hi)}</div>`;
                             }
                             if (opt.en) {
-                                html += `<div class="lang-en text-sm text-slate-500">${formatText(opt.en)}</div>`;
+                                html += `<div class="lang-en pt-2 first:pt-0 text-sm text-slate-500 preserve-lines">${formatText(opt.en)}</div>`;
                             }
                             
                             const optImgPath = opt.image_path || opt.visual;
                             if (optImgPath) {
+                                html += `<div class="mt-2 pt-2"><img src="${optImgPath}" alt="Option Image" class="max-h-32 rounded border border-slate-200"></div>`;
+                            }
+
+                            html += `</div></div>`;
+                        });
+                    }
+                    html += `</div>`;
+
+                    card.innerHTML = html;
+                    container.appendChild(card);
+                });
+
+                // Apply default language selection
+                setLanguage('both');
+
+                // Force MathJax to render
+                setTimeout(() => {
+                    if (window.MathJax) {
+                        window.MathJax.typesetClear();
+                        window.MathJax.typeset();
+                    }
+                }, 300);
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('questions-container').innerHTML = `
+                    <div class="bg-red-50 border border-red-200 text-red-700 p-6 rounded-xl text-center shadow-sm">
+                        <p class="font-bold text-lg">Could not load question bank.</p>
+                        <p class="mt-2">Make sure <code>question_bank.json</code> is present in your repository.</p>
+                    </div>
+                `;
+                document.getElementById('question-count').innerText = 'Error';
+            }
+        }
+
+        // Initialize App
+        loadQuestions();
+    </script>
+</body>
+</html>
+             if (optImgPath) {
                                 html += `<div class="mt-2"><img src="${optImgPath}" alt="Option Image" class="max-h-32 rounded border border-slate-200"></div>`;
                             }
 
