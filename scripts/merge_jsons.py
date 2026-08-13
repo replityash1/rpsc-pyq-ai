@@ -11,7 +11,7 @@ def main():
 
     # The GitHub action downloads artifacts into 'downloaded_jsons'
     # It creates subfolders for each artifact name, so we search recursively
-    search_path = os.path.join("downloaded_jsons", "**", "*.json")
+    search_path = os.path.join("downloaded_outputs", "**", "*.json")
     json_files = glob.glob(search_path, recursive=True)
 
     if not json_files:
