@@ -10,11 +10,11 @@ import requests
 # Configuration
 # ---------------------------------------------------------
 
-IMAGE = "pages/page1.jpg"
+IMAGE = "pages/page2.jpg"
 
-OUTPUT = "output/page_1.json"
+OUTPUT = "output/page_2.json"
 
-RAW_OUTPUT = "output/page_1_raw.txt"
+RAW_OUTPUT = "output/page_2_raw.txt"
 
 API_URL = "http://127.0.0.1:8080/v1/chat/completions"
 
