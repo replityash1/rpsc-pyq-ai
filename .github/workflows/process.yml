@@ -56,7 +56,7 @@ jobs:
           if [ -z "$PDF" ]; then
             echo "ERROR: No PDF found."
             exit 1
-          fi
+          }
           
           PAGES=$(pdfinfo "$PDF" | grep Pages | awk '{print $2}')
           echo "PDF has $PAGES pages."
@@ -71,6 +71,7 @@ jobs:
   process:
     needs: prep
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -79,6 +80,30 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ---------------------------------------------------------
+      # THE CPU SPEED BENCHMARK (Fails fast if server is throttled)
+      # ---------------------------------------------------------
+      - name: CPU Speed Benchmark
+        run: |
+          python3 -c '
+          import time, sys
+          print("Starting CPU Benchmark...")
+          start_time = time.time()
+          
+          # Heavy CPU task: Calculate sum of squares for 15 million numbers
+          _ = sum(i * i for i in range(15_000_000))
+          
+          duration = time.time() - start_time
+          print(f"Benchmark completed in {duration:.2f} seconds.")
+          
+          # Threshold set to 1.8 seconds (adjust if too strict)
+          if duration > 1.8:
+              print("❌ Server is too slow (Noisy Neighbor detected). Bailing out!")
+              sys.exit(1)
+          else:
+              print("✅ Server is fast! Proceeding with AI inference.")
+          '
 
       - name: Install dependencies
         run: |
@@ -122,7 +147,6 @@ jobs:
           mkdir -p output
           python3 scripts/test_page.py ${{ matrix.page }}
 
-      # UPDATED: Now uploads the entire output folder (JSON + Images)
       - name: Upload Page Output
         uses: actions/upload-artifact@v4
         with:
@@ -150,16 +174,12 @@ jobs:
 
       - name: Organize Images and Commit
         run: |
-          # Create a master images folder
           mkdir -p images
-          
-          # Find all cropped jpgs from the downloaded artifacts and move them to the images folder
           find downloaded_outputs -type f -name "*.jpg" -exec cp {} images/ \;
           
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Stage the JSON and the newly consolidated images folder
           git add question_bank.json
           git add images/
           
