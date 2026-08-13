@@ -127,7 +127,7 @@ jobs:
             --host 127.0.0.1 --port 8080 -c 8192 -ngl 0 > server.log 2>&1 &
           
           for i in {1..120}; do
-            if curl -sf [http://127.0.0.1:8080/health](http://127.0.0.1:8080/health) > /dev/null; then
+            if curl -sf http://127.0.0.1:8080/health > /dev/null; then
               echo "MODEL IS READY"
               break
             fi
